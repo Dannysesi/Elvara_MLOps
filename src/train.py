@@ -1,0 +1,138 @@
+import os
+import json
+import joblib
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import (
+    roc_auc_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report
+)
+
+from src.data_pipeline import load_raw_data, clean_data
+from src.feature_engineering import build_feature_matrix
+
+def train_and_evaluate_models(models_dir: str = "models", data_dir: str = "data/processed"):
+    """
+    Trains HistGradientBoostingClassifier (Primary) and LogisticRegression (Baseline).
+    Evaluates both models and persists artifacts.
+    """
+    os.makedirs(models_dir, exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
+
+    print("--- Step 1: Loading & Cleaning Data ---")
+    patients, vitals, history, labs, outcomes = clean_data(*load_raw_data())
+
+    print("--- Step 2: Feature Engineering ---")
+    df_features = build_feature_matrix(patients, vitals, labs, outcomes)
+    processed_csv_path = os.path.join(data_dir, "sepsis_features.csv")
+    df_features.to_csv(processed_csv_path, index=False)
+    print(f"Saved feature dataset to {processed_csv_path} with shape {df_features.shape}")
+
+    X = df_features.drop(columns=["patient_id", "sepsis_event"])
+    y = df_features["sepsis_event"]
+    feature_names = list(X.columns)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.25, random_state=42, stratify=y
+    )
+
+    print(f"Train set: {X_train.shape[0]} samples, Test set: {X_test.shape[0]} samples")
+    print(f"Train positive class count: {y_train.sum()}, Test positive count: {y_test.sum()}")
+
+    # 1. Baseline Model: Logistic Regression
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    baseline_lr = LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42)
+    baseline_lr.fit(X_train_scaled, y_train)
+
+    lr_probs = baseline_lr.predict_proba(X_test_scaled)[:, 1]
+    lr_preds = (lr_probs >= 0.5).astype(int)
+
+    lr_roc = roc_auc_score(y_test, lr_probs)
+    lr_prec = precision_score(y_test, lr_preds, zero_division=0)
+    lr_rec = recall_score(y_test, lr_preds, zero_division=0)
+    lr_f1 = f1_score(y_test, lr_preds, zero_division=0)
+
+    print("\n================ BASELINE MODEL (Logistic Regression) ================")
+    print(f"ROC-AUC:   {lr_roc:.4f}")
+    print(f"Precision: {lr_prec:.4f}")
+    print(f"Recall:    {lr_rec:.4f}")
+    print(f"F1-Score:  {lr_f1:.4f}")
+
+    # 2. Primary Model: HistGradientBoostingClassifier
+    # Class weight balanced to handle imbalanced sepsis prevalence (~12%)
+    primary_hgb = HistGradientBoostingClassifier(
+        max_iter=150,
+        learning_rate=0.05,
+        max_depth=5,
+        min_samples_leaf=10,
+        class_weight='balanced',
+        random_state=42
+    )
+    primary_hgb.fit(X_train, y_train)
+
+    hgb_probs = primary_hgb.predict_proba(X_test)[:, 1]
+    hgb_preds = (hgb_probs >= 0.5).astype(int)
+
+    hgb_roc = roc_auc_score(y_test, hgb_probs)
+    hgb_prec = precision_score(y_test, hgb_preds, zero_division=0)
+    hgb_rec = recall_score(y_test, hgb_preds, zero_division=0)
+    hgb_f1 = f1_score(y_test, hgb_preds, zero_division=0)
+    hgb_cm = confusion_matrix(y_test, hgb_preds).tolist()
+
+    print("\n================ PRIMARY MODEL (HistGradientBoostingClassifier) ================")
+    print(f"ROC-AUC:   {hgb_roc:.4f}")
+    print(f"Precision: {hgb_prec:.4f}")
+    print(f"Recall:    {hgb_rec:.4f}")
+    print(f"F1-Score:  {hgb_f1:.4f}")
+    print("Confusion Matrix:\n", confusion_matrix(y_test, hgb_preds))
+    print("\nClassification Report:\n", classification_report(y_test, hgb_preds))
+
+    # Save artifacts
+    model_payload = {
+        "model": primary_hgb,
+        "feature_names": feature_names,
+        "medians": X.median().to_dict(),
+        "baseline_model": baseline_lr,
+        "scaler": scaler
+    }
+    model_path = os.path.join(models_dir, "sepsis_model.joblib")
+    joblib.dump(model_payload, model_path)
+    print(f"\nTrained model payload saved to: {model_path}")
+
+    metadata = {
+        "model_type": "HistGradientBoostingClassifier",
+        "features": feature_names,
+        "primary_metrics": {
+            "roc_auc": round(hgb_roc, 4),
+            "precision": round(hgb_prec, 4),
+            "recall": round(hgb_rec, 4),
+            "f1_score": round(hgb_f1, 4),
+            "confusion_matrix": hgb_cm
+        },
+        "baseline_metrics": {
+            "model_type": "LogisticRegression",
+            "roc_auc": round(lr_roc, 4),
+            "precision": round(lr_prec, 4),
+            "recall": round(lr_rec, 4),
+            "f1_score": round(lr_f1, 4)
+        },
+        "training_samples": X_train.shape[0],
+        "test_samples": X_test.shape[0]
+    }
+
+    meta_path = os.path.join(models_dir, "model_metadata.json")
+    with open(meta_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Model metadata saved to: {meta_path}")
+
+    return metadata
+
+if __name__ == "__main__":
+    train_and_evaluate_models()
