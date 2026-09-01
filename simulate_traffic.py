@@ -2,7 +2,9 @@ import time
 import random
 import httpx
 
-API_URL = "http://localhost:8080/predict-risk"
+import os
+
+API_URL = os.getenv("API_URL", "https://elvaramlops-production.up.railway.app/predict-risk")
 
 def generate_random_patient(pid: int):
     # Randomize clinical vitals to simulate diverse patient deterioration states
