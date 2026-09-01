@@ -1,3 +1,21 @@
-data/
+# Virtual Environment
 elvara/
-*.pyc
+venv/
+.venv/
+env/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# System / OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Docker / Temporary build files
+scratch/

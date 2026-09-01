@@ -1,4 +1,6 @@
+from pathlib import Path
 import os
+import sys
 import json
 import joblib
 import pandas as pd
@@ -12,14 +14,30 @@ from sklearn.metrics import (
     confusion_matrix, classification_report
 )
 
-from src.data_pipeline import load_raw_data, clean_data
-from src.feature_engineering import build_feature_matrix
+BASE_DIR = Path(__file__).resolve().parent.parent
+SRC_DIR = BASE_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
-def train_and_evaluate_models(models_dir: str = "models", data_dir: str = "data/processed"):
+try:
+    from data_pipeline import load_raw_data, clean_data
+    from feature_engineering import build_feature_matrix
+except ImportError:
+    from src.data_pipeline import load_raw_data, clean_data
+    from src.feature_engineering import build_feature_matrix
+
+def train_and_evaluate_models(
+    models_dir: str | Path = BASE_DIR / "models",
+    data_dir: str | Path = BASE_DIR / "data" / "processed"
+):
     """
     Trains HistGradientBoostingClassifier (Primary) and LogisticRegression (Baseline).
     Evaluates both models and persists artifacts.
     """
+    models_dir = Path(models_dir)
+    data_dir = Path(data_dir)
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(data_dir, exist_ok=True)
 
@@ -28,7 +46,7 @@ def train_and_evaluate_models(models_dir: str = "models", data_dir: str = "data/
 
     print("--- Step 2: Feature Engineering ---")
     df_features = build_feature_matrix(patients, vitals, labs, outcomes)
-    processed_csv_path = os.path.join(data_dir, "sepsis_features.csv")
+    processed_csv_path = data_dir / "sepsis_features.csv"
     df_features.to_csv(processed_csv_path, index=False)
     print(f"Saved feature dataset to {processed_csv_path} with shape {df_features.shape}")
 
