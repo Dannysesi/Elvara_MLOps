@@ -93,10 +93,10 @@ class SepsisPredictor:
         # Model Predict
         risk_score = float(self.model.predict_proba(feat_df)[0, 1])
 
-        # Categorize Risk
-        if risk_score >= 0.70:
+        # Categorize Risk based on population prevalence quantiles
+        if risk_score >= 0.35:
             risk_category = "High"
-        elif risk_score >= 0.35:
+        elif risk_score >= 0.20:
             risk_category = "Moderate"
         else:
             risk_category = "Low"
