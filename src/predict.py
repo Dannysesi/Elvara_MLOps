@@ -93,14 +93,6 @@ class SepsisPredictor:
         # Model Predict
         risk_score = float(self.model.predict_proba(feat_df)[0, 1])
 
-        # Categorize Risk based on population prevalence quantiles
-        if risk_score >= 0.35:
-            risk_category = "High"
-        elif risk_score >= 0.20:
-            risk_category = "Moderate"
-        else:
-            risk_category = "Low"
-
         # Risk drivers identification
         risk_drivers = []
         if row.get("heart_rate_last", 80) > 90:
@@ -117,6 +109,14 @@ class SepsisPredictor:
             risk_drivers.append(f"Elevated Serum Lactate ({row.get('lactate_last'):.2f} mmol/L)")
         if row.get("crp_last", 5.0) > 20.0:
             risk_drivers.append(f"Elevated CRP Inflammatory Marker ({row.get('crp_last'):.1f} mg/L)")
+
+        # Categorize Risk based on combined probability score & clinical driver count
+        if risk_score >= 0.25 or len(risk_drivers) >= 3:
+            risk_category = "High"
+        elif risk_score >= 0.12 or len(risk_drivers) >= 1:
+            risk_category = "Moderate"
+        else:
+            risk_category = "Low"
 
         if not risk_drivers:
             risk_drivers.append("All vital signs and laboratory markers within expected reference ranges.")
